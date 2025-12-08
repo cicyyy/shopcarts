@@ -2,7 +2,6 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: shopcarts-ingress
-  namespace: shopcarts
   annotations:
     # Use Traefik as the Ingress Controller (default in K3D)
     traefik.ingress.kubernetes.io/router.entrypoints: web

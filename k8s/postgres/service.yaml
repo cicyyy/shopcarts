@@ -2,7 +2,6 @@ apiVersion: v1
 kind: Service
 metadata:
   name: postgres-headless
-  namespace: shopcarts
 spec:
   clusterIP: None
   selector:
@@ -16,7 +15,6 @@ apiVersion: v1
 kind: Service
 metadata:
   name: postgres
-  namespace: shopcarts
 spec:
   selector:
     app: postgres

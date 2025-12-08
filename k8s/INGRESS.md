@@ -13,7 +13,6 @@ The Ingress resource provides external access to the Shopcarts service from outs
 The Ingress is defined in `k8s/ingress.yaml`:
 
 - **Name**: `shopcarts-ingress`
-- **Namespace**: `shopcarts`
 - **Ingress Controller**: Traefik (default in K3D)
 - **Service**: Points to `shopcarts` service on port 80
 

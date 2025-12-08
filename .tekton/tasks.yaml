@@ -74,7 +74,7 @@ metadata:
   labels:
     app.kubernetes.io/version: "0.1"
   annotations:
-    tekton.dev/categories: Testing
+    tekton.dev/categories: Testing 
     tekton.dev/pipelines.minVersion: "0.17.0"
     tekton.dev/tags: python, pytest
     tekton.dev/displayName: "pytest tests"
@@ -97,7 +97,7 @@ spec:
     - name: secret-name
       description: The name of the secret containing a database_uri key
       type: string
-      default: "postgres-creds"
+      default: "postgres-secret"
     - name: secret-key
       description: The name of the key that contains the database uri
       type: string
@@ -107,11 +107,11 @@ spec:
       image: quay.io/rofrano/python:3.11-slim
       workingDir: $(workspaces.source.path)
       env:
-       - name: DATABASE_URI
-         valueFrom:
-           secretKeyRef:
-             name: $(params.secret-name)
-             key: $(params.secret-key)
+        - name: DATABASE_URI
+          valueFrom:
+            secretKeyRef:
+              name: $(params.secret-name)
+              key: $(params.secret-key)
       script: |
         #!/bin/bash
         set -e
@@ -127,11 +127,11 @@ spec:
           echo "Found Pipfile file: using pipenv ..."
           python -m pip install --upgrade pip pipenv
           pipenv install --system --dev
-        elif -e "requirements.txt" ]; then
+        elif [ -e "requirements.txt" ]; then
           python -m pip install --user -r requirements.txt
         fi
 
-        # Make sure pylint is installed
+        # Make sure pytest is installed
         python -m pip install pytest
 
         echo "***** Running Tests *****"
@@ -145,39 +145,26 @@ apiVersion: tekton.dev/v1beta1
 kind: Task
 metadata:
   name: deploy-image
-  labels:
-    app.kubernetes.io/version: "0.1"
-  annotations:
-    tekton.dev/categories: Deployment
-    tekton.dev/pipelines.minVersion: "0.17.0"
-    tekton.dev/tags: openshift, deploy
-    tekton.dev/displayName: "deploy image"
-    tekton.dev/platforms: "linux/amd64"
 spec:
   workspaces:
-  - name: source  
-  description: >-
-    This task will update the deployment.yaml with the latest image name
-    and then apply that yaml file and it's service file.
+    - name: source
   params:
-  - name: image-name
-    description: The fully qualified name of the new image to deploy
-    type: string
-  - name: manifest-dir
-    description: The directory in source that contains yaml manifests
-    type: string
-    default: "k8s"
+    - name: image-name
+      type: string
+    - name: manifest-dir
+      type: string
+      default: "k8s"
   steps:
     - name: deploy
       image: quay.io/openshift/origin-cli:latest
-      workingDir: /workspace/source 
+      workingDir: /workspace/source
       command: ["/bin/bash", "-c"]
       args:
         - |-
           #!/bin/bash
           set -e
 
-          echo Applying manifests in $(inputs.params.manifest-dir) directory
+          echo "Applying manifests in $(inputs.params.manifest-dir) directory"
 
           echo "**********************************************************************"
           echo "Installing YQ..."
@@ -185,21 +172,49 @@ spec:
           wget -qO /usr/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
           chmod a+x /usr/bin/yq
 
-          echo "*********************  DEPLOYMENT  ***********************"
+          echo "*********************  DEPLOYMENT ***********************"
           echo "Deploying $(inputs.params.image-name) ..."
 
-          yq -e -i '.spec.template.spec.containers[0].image="$(inputs.params.image-name)"' $(inputs.params.manifest-dir)/deployment.yaml
-          cat $(inputs.params.manifest-dir)/deployment.yaml
+          yq -e -i '.spec.template.spec.containers[0].image = "'"$(inputs.params.image-name)"'"' $(inputs.params.manifest-dir)/shopcarts-deployment.yaml
+
+          yq -e -i 'del(.metadata.namespace)' $(inputs.params.manifest-dir)/shopcarts-deployment.yaml
+
+          cat $(inputs.params.manifest-dir)/shopcarts-deployment.yaml
 
           echo "************************************************************"
-          echo "OC APPLY..."
-          oc apply -f $(inputs.params.manifest-dir)/deployment.yaml
-          oc apply -f $(inputs.params.manifest-dir)/service.yaml
+          # Try multiple methods to get the namespace
+          # 1. Check if NAMESPACE environment variable is set
+          if [ -z "$NAMESPACE" ]; then
+            # 2. Try reading from service account token (available in Tekton pods)
+            if [ -f /var/run/secrets/kubernetes.io/serviceaccount/namespace ]; then
+              NAMESPACE=$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace)
+            fi
+          fi
+          if [ -z "$NAMESPACE" ]; then
+            # 3. Try to get it from oc project (may fail if no project set)
+            NAMESPACE=$(oc project -q 2>/dev/null || echo "")
+          fi
+          if [ -z "$NAMESPACE" ]; then
+            # 4. Try to get it from current kubeconfig context
+            NAMESPACE=$(kubectl config view --minify -o jsonpath='{..namespace}' 2>/dev/null || echo "")
+          fi
+          if [ -z "$NAMESPACE" ]; then
+            echo "Error: Unable to determine namespace. Tried:"
+            echo "  - NAMESPACE environment variable"
+            echo "  - Service account token file"
+            echo "  - oc project -q"
+            echo "  - kubectl config context"
+            exit 1
+          fi
+          echo "Deploying to namespace: $NAMESPACE"
+          # Set the project explicitly to avoid "no project has been set" error
+          oc project $NAMESPACE || exit 1
+          oc apply -n $NAMESPACE -f $(inputs.params.manifest-dir)/shopcarts-deployment.yaml
 
           echo "************************************************************"
           sleep 3
           echo "Pods:"
-          oc get pods
+          oc get pods -n $NAMESPACE
           echo ""
 
 ---

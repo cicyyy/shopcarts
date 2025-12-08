@@ -1,8 +1,8 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: shopcarts-config
-  namespace: shopcarts
+  name: postgres-config
 data:
-  DATABASE_URI: postgresql+psycopg://postgres:postgres@postgres:5432/shopcarts
-  PORT: "8080"
+  POSTGRES_DB: shopcarts
+  POSTGRES_USER: postgres
+  
